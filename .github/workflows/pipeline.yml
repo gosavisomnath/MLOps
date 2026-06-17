@@ -1,0 +1,61 @@
+name: Tourism Project Pipeline
+
+on:
+  push:
+    branches:
+      - main  # Automatically triggers on push to the main branch
+
+jobs:
+
+  register-dataset:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Python and Dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y git-lfs
+          pip install -q huggingface_hub pandas
+      - name: Upload Dataset to Hugging Face Hub
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python tourism_project/utils/register_dataset.py
+
+  data-prep:
+    needs: register-dataset
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Python and Dependencies
+        run: pip install -q pandas numpy scikit-learn huggingface_hub
+      - name: Run Data Preparation
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python tourism_project/utils/data_preparation.py
+
+  model-traning:
+    needs: data-prep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Python and Dependencies
+        run: pip install -r tourism_project/deployment/requirements.txt
+      - name: Start MLflow Server
+        run: |
+          nohup mlflow ui --host 0.0.0.0 --port 5000 &  # Run MLflow UI in the background
+          sleep 5  # Wait for a moment to let the server starts
+      - name: Model Building
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python tourism_project/utils/model_training.py
+
+  deploy-hosting:
+    runs-on: ubuntu-latest
+    needs: [model-traning, data-prep, register-dataset]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Python and Dependencies
+        run: pip install -q huggingface_hub streamlit
+      - name: Push files to Frontend Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python tourism_project/utils/deploy_app.py
